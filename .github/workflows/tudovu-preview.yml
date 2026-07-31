@@ -59,7 +59,19 @@ jobs:
           if [ "$STATUS" = "DELETE_IN_PROGRESS" ]; then
             echo "A previous teardown is still running; waiting for it."
             aws cloudformation wait stack-delete-complete --stack-name "$PREVIEW_STACK" --region us-east-1 || true
+            STATUS=NONE
           fi
+          # A stack left in ROLLBACK_COMPLETE cannot be updated — only deleted and recreated. On a
+          # production stack that is a decision for a human; on a preview it is obviously right,
+          # because nothing is serving from it and the alternative is a pull request that can
+          # never get a preview again.
+          case "$STATUS" in
+            ROLLBACK_COMPLETE|CREATE_FAILED|DELETE_FAILED|UPDATE_ROLLBACK_FAILED)
+              echo "Previous preview is in $STATUS and cannot be updated. Deleting it and starting again."
+              aws cloudformation delete-stack --stack-name "$PREVIEW_STACK" --region us-east-1 || true
+              aws cloudformation wait stack-delete-complete --stack-name "$PREVIEW_STACK" --region us-east-1 || true
+              ;;
+          esac
       - name: Build and push the image
         env:
           REPO_FULL: ${{ github.repository }}
