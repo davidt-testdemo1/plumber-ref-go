@@ -88,7 +88,13 @@ jobs:
           VPC_ID=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query "Vpcs[0].VpcId" --output text --region us-east-1)
           if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then echo "No default VPC in us-east-1."; exit 1; fi
           SUBNET_IDS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=true" --query "Subnets[].SubnetId" --output text --region us-east-1 | tr '\t' ',')
-          if [ -z "$SUBNET_IDS" ]; then echo "No public subnets in $VPC_ID."; exit 1; fi
+          # Fall back to every subnet in the VPC. A default VPC whose subnets do not
+          # auto-assign public IPs is common — the test account is one — and the container deploy
+          # workflow has carried this same fallback for exactly that reason. Omitting it here made
+          # the preview fail on an account where the real deploy works, which is the worst kind of
+          # difference between the two.
+          if [ -z "$SUBNET_IDS" ]; then SUBNET_IDS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query "Subnets[].SubnetId" --output text --region us-east-1 | tr '\t' ','); fi
+          if [ -z "$SUBNET_IDS" ]; then echo "No subnets at all in $VPC_ID."; exit 1; fi
           aws cloudformation deploy \
             --template-file infra/preview.yaml \
             --stack-name "$PREVIEW_STACK" \
