@@ -9,3 +9,5 @@ can deploy successfully through the **Containers** preset.
 - `go 1.22`, matching the base image the container scaffold pins
 
 If a deploy of this repo fails, the fault is in Plumber.
+
+<!-- rerun -->
