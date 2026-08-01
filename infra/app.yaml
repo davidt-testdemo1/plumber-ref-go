@@ -17,13 +17,6 @@ Parameters:
   DesiredCount:
     Type: Number
     Default: 2
-  EnableDeletionProtection:
-    Type: String
-    Default: "false"
-    AllowedValues: ["true", "false"]
-    Description: >-
-      Block accidental deletion of the database. Off by default so a stack can be torn down
-      cleanly; turn it on for anything holding data you cannot lose.
 
 Resources:
   AlbSecurityGroup:
@@ -106,15 +99,6 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-      Policies:
-        - PolicyName: read-secrets
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: secretsmanager:GetSecretValue
-                Resource:
-                  - !Ref DbSecret
 
   TaskRole:
     Type: AWS::IAM::Role
@@ -158,21 +142,10 @@ Resources:
             - ContainerPort: 8080
           Essential: true
           Environment:
-            - Name: POSTGRES_HOST
-              Value: !GetAtt Database.Endpoint.Address
-            - Name: POSTGRES_PORT
-              Value: !GetAtt Database.Endpoint.Port
-            - Name: POSTGRES_DB
-              Value: "appdb"
-            - Name: POSTGRES_USER
-              Value: "appuser"
             - Name: PORT
               Value: "8080"
             - Name: APP_BUCKET
               Value: !Ref AppBucket
-          Secrets:
-            - Name: POSTGRES_PASSWORD
-              ValueFrom: !Sub "${DbSecret}:password::"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -199,53 +172,6 @@ Resources:
         - ContainerName: app
           ContainerPort: 8080
           TargetGroupArn: !Ref TargetGroup
-
-  DbSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Description: !Sub "DB credentials for ${AWS::StackName}"
-      GenerateSecretString:
-        SecretStringTemplate: '{"username":"appuser"}'
-        GenerateStringKey: password
-        PasswordLength: 24
-        ExcludePunctuation: true
-
-  DbSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: !Sub "Subnets for ${AWS::StackName} database"
-      SubnetIds: !Ref PublicSubnetIds
-
-  DbSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Database accepts traffic only from the app tasks.
-      VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          SourceSecurityGroupId: !Ref ServiceSecurityGroup
-
-  Database:
-    Type: AWS::RDS::DBInstance
-    DeletionPolicy: Snapshot
-    UpdateReplacePolicy: Snapshot
-    Properties:
-      Engine: postgres
-      DBInstanceClass: db.t3.micro
-      AllocatedStorage: "20"
-      DBName: appdb
-      MasterUsername: appuser
-      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DbSecret}:SecretString:password}}"
-      DBSubnetGroupName: !Ref DbSubnetGroup
-      VPCSecurityGroups:
-        - !Ref DbSecurityGroup
-      PubliclyAccessible: false
-      MultiAZ: false
-      StorageEncrypted: true
-      BackupRetentionPeriod: 7
-      DeletionProtection: !Ref EnableDeletionProtection
 
   AppBucket:
     Type: AWS::S3::Bucket
@@ -291,6 +217,3 @@ Outputs:
   CdnUrl:
     Description: HTTPS URL served by CloudFront (edge TLS, no custom domain needed).
     Value: !Sub "https://${Distribution.DomainName}"
-  DatabaseEndpoint:
-    Description: RDS endpoint the app connects to.
-    Value: !GetAtt Database.Endpoint.Address
